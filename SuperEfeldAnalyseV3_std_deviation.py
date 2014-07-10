@@ -16,11 +16,15 @@ import numpy as N
 import matplotlib.pyplot as plt
 import matplotlib.figure
 import codecs
-
-print('*** Time-correlation/Current calculator V16 turbo ***')
-print('Includes Testparticles!')
-print('')
-
+print('\n')
+print('\n')
+print('*** CUT (Current Analysis Tool) ***')
+print('Author: Moritz Greif')
+print('email: greif@th.physik.uni-frankfurt.de')
+print('Available on Github: Ajiperuyellow')
+print('\n')
+print('*** optimized for electric conductivity calculation ***')
+print('\n')
 
 #Data
 run_group_name =  'ERCONX03PaperChangeE'
@@ -30,13 +34,13 @@ temperature_begin = 0.6
 temperature_end = 0.6
 temperature_inc = 0.1
 efield = 0.05
-efield_end = 0.25
+efield_end = 0.05
 efield_inc = 0.05
 
 
 
 #Name for output-file:
-beliebig = 'NewErrors'
+beliebig = 'JackKTest2'
 
 #Parameter:
 ladung = [0.0, 2.0 / 3.0, -2.0 / 3.0, -1.0 / 3.0, 1.0 / 3.0, -1.0 / 3.0, 1.0 / 3.0]
@@ -81,7 +85,9 @@ mkdir('ANALYSIS_'+run_group_name+'_'+beliebig)
 #chdir('../')
 
 print('*********************')
-print('New simplified correlator routine')
+print('Start the Analysis')
+print('*********************')
+
 b = temperature_begin
 while b < (temperature_end + temperature_inc):
 	a = efield
@@ -106,16 +112,22 @@ while b < (temperature_end + temperature_inc):
 		sum_of_corrs=N.zeros(Zeit_max)
 		variance_array = N.zeros(Number_of_runs)
 		corrfunction_array = N.zeros((Zeit_max, Number_of_runs)) 
-		corrfunction_array_manually = N.zeros((Zeit_max, Number_of_runs)) 
+		corrfunction_array_manually = N.zeros((Zeit_max, Number_of_runs))
+		
 		mean_corr_array = N.zeros(Zeit_max)
 		std_corr_array = N.zeros(Zeit_max)
 		varianzen_array= N.zeros(Zeit_max)
 		gewichte_array=N.zeros(Zeit_max)
 				
 		stromarray = N.zeros((Zeit_max, Number_of_runs))
+		reduced_stromarray = N.zeros((Zeit_max, Number_of_runs))
 		mean_strom_array = N.zeros(Zeit_max)
 		std_strom_array = N.zeros(Zeit_max)
 
+		corrfunction_array_MASK = N.zeros((Zeit_max, Number_of_runs))
+		stromarray_MASK = N.zeros((Zeit_max, Number_of_runs))
+		stromarray_masked_clean = N.zeros((Zeit_max, Number_of_runs))
+		
 		#Loop through all runs
 		runnumber = 1
 		File_loaded = False
@@ -257,71 +269,119 @@ while b < (temperature_end + temperature_inc):
 		Number_of_runs = Number_of_runs - No_file_count
 		
 		# Calculate the mean current and all that
-		mean_strom_array = N.mean(stromarray,axis=1)
-		std_strom_array = N.std(stromarray,axis=1)
-		
-		stdfehler_array = N.std(stromarray,axis=1)/sqrt(runnumber)
-		
-		
-		
-		
-		
-		#print mean_strom_array
-		
-		# Calculate the variances
-		for i in zeit:
-			varianzen_array[i]=std_strom_array[i]*std_strom_array[i]
-			#print std_strom_array[i]
-			if varianzen_array[i]>0:
-				gewichte_array[i]=1.0/varianzen_array[i]
-		#Letzter Timestep ist Null
-		daten_zum_fitten = mean_strom_array[Analysestart:timesteps-1]
-		fehlerdaten_zum_fitten = std_strom_array[Analysestart:timesteps-1]		
-		varianzen_zum_fitten = varianzen_array[Analysestart:timesteps-1]
-		gewichte_zum_fitten = gewichte_array[Analysestart:timesteps-1]
-		
-			
-				
-		# CALCULATE THE MEAN AND THE DEVIATION OF THE DATASET
-		#weighted average
-		Final_mean = N.average(daten_zum_fitten,weights=gewichte_zum_fitten)
-		#weighted sample variance
-		Weighted_Sample_variance=sum(gewichte_zum_fitten[y]*pow((daten_zum_fitten[y]-Final_mean),2.0) for y in arange(Anzahl_Analysezeitschritte))/(sum(gewichte_zum_fitten))
-		Weighted_Sample_Std_Deviation = sqrt(Weighted_Sample_variance)
-		
-		#Inner error
-		innerer_fehler = sqrt(1.0/(sum(gewichte_zum_fitten)))
-		#Ausserer Fehler
-		external_error = sqrt(1.0/(Anzahl_Analysezeitschritte-1.0)*1.0/sum(gewichte_zum_fitten)*sum(gewichte_zum_fitten[y]*pow((daten_zum_fitten[y]-Final_mean),2.0) for y in arange(Anzahl_Analysezeitschritte)))
-		#Check
-		Final_std = max(innerer_fehler,external_error)
-		
-		print "Weighted Mean: "
-		print Final_mean
-		print "internal error: "
-		print innerer_fehler
-		print "external error:"
-		print external_error
-		print "Benutzter Error:"
-		print Final_std
-		
-		# CALCULATE THE MEAN AND THE DEVIATION OF THE DATASET
-		#weighted average
-		Final_mean_non_averaged = N.average(daten_zum_fitten)
-		Final_mean_non_averaged_std = N.std(daten_zum_fitten)
-		
 
 		
-		print "Normal Mean, weigth One"
-		print Final_mean_non_averaged
-		print "Normal Mean std deviation"
-		print Final_mean_non_averaged_std
-		print "Weighted Sample Std Deviation"
-		print Weighted_Sample_Std_Deviation
-		print "Weighted Sample STd ERROR"
-		print Weighted_Sample_Std_Deviation/sqrt(Anzahl_Analysezeitschritte)
-		print "\n\n"
+		Jackknife_error_weights=N.zeros(Zeit_max)
+		Jackknife_error_array_over_timesteps=N.zeros(Zeit_max)
+		reduced_stromarray_summed = N.zeros(Zeit_max)
+		mean_strom_array_reduced = N.zeros(Zeit_max)
+		mean_strom_array_error = N.zeros(Zeit_max)
+		Reduced_sample_current_average_array = N.zeros(0)
+		#JACKKNIFE
+		#Full sample
+		mean_strom_array = N.mean(stromarray,axis=1)
+		#only for the plot as reference
+		mean_strom_array_error = N.std(stromarray,axis=1)/Number_of_runs
+		#Rearrange the Datasets
+		data_to_fit = mean_strom_array[Analysestart:timesteps-1]
+		#Average the full sample
+		Full_sample_current_average = N.average(data_to_fit)
+
+			
+		#Reduced Samples
+		for jackknife_skip_number in arange(Number_of_runs):
+			
+			#Mask this run. It is jackknifed away!
+			stromarray_MASK[:,jackknife_skip_number]=1
+			#Generate a clean array of corrfunctions, where the jackknifing was done, and possible missing runs are also masked away
+			stromarray_masked_clean = ma.masked_array(stromarray, mask=stromarray_MASK)
+			# REDO the masking
+			stromarray_MASK[:,jackknife_skip_number]=0
+			#Average 
+			mean_strom_array_reduced = N.mean(stromarray_masked_clean,axis=1)
+			#Rearrange the Datasets	
+			data_to_fit_reduced = mean_strom_array_reduced[Analysestart:timesteps-1]
+			#Average the reduced sample and save in arrray
+			Reduced_sample_current_average_array=N.append(Reduced_sample_current_average_array,N.average(data_to_fit_reduced))
+			#sum up the runs
+			#print reduced_stromarray_summed[8000]
+			#reduced_stromarray_summed += pow(mean_strom_array_reduced - mean_strom_array,2.0)
+			#print reduced_stromarray_summed[8000]
+			#print '\n'
+
+		#Jackknife error for current average
+		Jackknife_error_current_average = sqrt(((Number_of_runs-1.0)/Number_of_runs)*sum(pow(Reduced_sample_current_average_array-Full_sample_current_average,2.0)))
+		print Full_sample_current_average
+		print Jackknife_error_current_average
+
+		Final_mean = Full_sample_current_average
+		Final_std = Jackknife_error_current_average
+		#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+		#Old Analysis:
+		#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++			
+		#Jackknife error for each timestep
+		#Jackknife_error_weights = 1.0/(((Number_of_runs-1.0)/Number_of_runs)*reduced_stromarray_summed)
+		#Jackknife_error_array_over_timesteps = sqrt( ((Number_of_runs-1.0)/Number_of_runs)*reduced_stromarray_summed )
+		#print Jackknife_error_array_over_timesteps
+		#print Jackknife_error_weights
 		
+		#Do a weighted average
+				
+		#Rearrange the Datasets
+		#data_to_fit = mean_strom_array[Analysestart:timesteps-1]
+		#errordata_to_fit = Jackknife_error_array_over_timesteps[Analysestart:timesteps-1]
+		#weights_to_fit = Jackknife_error_weights[Analysestart:timesteps-1]
+
+		#weighted average
+		#Final_mean = N.average(data_to_fit,weights=weights_to_fit)
+
+		#weighted sample variance
+		#Weighted_Sample_variance=sum(weights_to_fit[y]*pow((data_to_fit[y]-Final_mean),2.0) for y in arange(Anzahl_Analysezeitschritte))/(sum(weights_to_fit))
+		#Weighted_Sample_Std_Deviation = sqrt(Weighted_Sample_variance)
+		
+		#Inner error
+		#innerer_fehler = sqrt(1.0/(sum(weights_to_fit)))
+		#Ausserer Fehler
+		#external_error = sqrt((1.0/(Anzahl_Analysezeitschritte-1.0))*1.0/sum(weights_to_fit)*sum(weights_to_fit[y]*pow((data_to_fit[y]-Final_mean),2.0) for y in arange(Anzahl_Analysezeitschritte)))
+		#Check
+		#Final_std = max(innerer_fehler,external_error)
+		
+		#print "Weighted Mean: "
+		#print Final_mean
+		#print "internal error: "
+		#print innerer_fehler
+		#print "external error:"
+		#print external_error
+		#print "Benutzter Error:"
+		#print Final_std
+		
+		# CALCULATE THE MEAN AND THE DEVIATION OF THE DATASET
+		#weighted average
+		#Final_mean_non_averaged = N.average(data_to_fit)
+		#Final_mean_non_averaged_std = N.std(data_to_fit)
+
+		#print "Normal Mean, weigth One"
+		#print Final_mean_non_averaged
+		#print "Normal Mean std deviation"
+		#print Final_mean_non_averaged_std
+		#print "Weighted Sample Std Deviation"
+		#print Weighted_Sample_Std_Deviation
+		#print "Weighted Sample STd ERROR"
+		#print Weighted_Sample_Std_Deviation/sqrt(Anzahl_Analysezeitschritte)
+		#print "\n\n"
+		#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
+
+
+
+
+
+
 		print(str(No_file_count) + ' files did NOT exist!!!')
 
 
@@ -357,7 +417,7 @@ while b < (temperature_end + temperature_inc):
 		#ax.errorbar(x, y, yerr=[yerr_lower, 2*yerr], xerr=xerr,fmt='o', ecolor='g', capthick=2)
 		plt.grid(b=True, which='major')
 		#plt.plot(kurzezeit, fitFunc(kurzezeit, fitParams[0], fitParams[1], fitParams[2]))#,zeit, fitFunc(t, fitParams[0] + sigma[0], fitParams[1] - sigma[1], fitParams[2] + sigma[2]),zeit, fitFunc(t, fitParams[0] - sigma[0], fitParams[1] + sigma[1], fitParams[2] - sigma[2]))
-		plt.errorbar(zeit, mean_strom_array, linestyle='-', color='r', label=('Current'), yerr=stdfehler_array, ecolor='g')
+		plt.errorbar(zeit, mean_strom_array, linestyle='-', color='r', label=('Current'), yerr=mean_strom_array_error, ecolor='g')
 
 		plt.ylabel(r'$N^1(t)$')
 		plt.title(r'Time evolution of $N^1$')
@@ -381,19 +441,19 @@ while b < (temperature_end + temperature_inc):
 		plt.savefig(beliebig +'CURRENT_' + '_' + filename_basis + '_' + str(Number_of_runs) + '_runs_' + str(Zeit_max) + '_tsteps_' +  '.png', dpi=300, figsize=(10, 7))
 		plt.clf()	
 		
-		superstring=''
-		for t in zeit:
-			superstring += str(t) + '\t' + str(mean_strom_array[t])+ '\t' + str(stdfehler_array[t])  + '\n'
-			t = t + 1		
-			
-		f = codecs.open(beliebig +'STROM-Datei' + '_' + filename_basis + '_' + str(Number_of_runs) + '_runs_' + str(Zeit_max) + '_tsteps_' , 'w')
-		f.write(superstring)
-		f.close()	
+		#superstring=''
+		#for t in zeit:
+		#	superstring += str(t) + '\t' + str(mean_strom_array[t])+ '\t' + str(Jackknife_error_array_over_timesteps[t])  + '\n'
+		#	t = t + 1		
+		#	
+		#f = codecs.open(beliebig +'STROM-Datei' + '_' + filename_basis + '_' + str(Number_of_runs) + '_runs_' + str(Zeit_max) + '_tsteps_' , 'w')
+		#f.write(superstring)
+		#f.close()	
 		
 		resultstring  = str(Final_mean) + '\t' + str(Final_std)+'\n'
-		resultstring += str(Final_mean_non_averaged)+'\t'+str(Final_mean_non_averaged_std) + '\n'
-		resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation) + '\n'
-		resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation/sqrt(Anzahl_Analysezeitschritte))
+		#resultstring += str(Final_mean_non_averaged)+'\t'+str(Final_mean_non_averaged_std) + '\n'
+		#resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation) + '\n'
+		#resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation/sqrt(Anzahl_Analysezeitschritte))
 
 		
 		f = codecs.open(beliebig +'RESULTS' + '_' + filename_basis + '_' + str(Number_of_runs) + '_runs_' + str(Zeit_max) + '_tsteps_' , 'w')
@@ -423,10 +483,10 @@ while b < (temperature_end + temperature_inc):
 		#def fitFunc(zeit, a, b, c):
     			#return a*N.exp(-1.0*zeit/b) + c
 		
-		#daten_zum_fitten=mean_corr_array[0:kurzintervall]
-		#fehlerdaten_zum_fitten=std_corr_array[0:kurzintervall]/sqrt(Number_of_runs)
+		#data_to_fit=mean_corr_array[0:kurzintervall]
+		#fehlerdata_to_fit=std_corr_array[0:kurzintervall]/sqrt(Number_of_runs)
 		
-		#fitParams, fitCovariances = curve_fit(fitFunc, kurzezeit, daten_zum_fitten)
+		#fitParams, fitCovariances = curve_fit(fitFunc, kurzezeit, data_to_fit)
 		#sigma = [sqrt(fitCovariances[0,0]), sqrt(fitCovariances[1,1]),sqrt(fitCovariances[2,2])]
 		#print fitParams
 		#print fitCovariances
@@ -451,7 +511,7 @@ while b < (temperature_end + temperature_inc):
 		##ax.errorbar(x, y, yerr=[yerr_lower, 2*yerr], xerr=xerr,fmt='o', ecolor='g', capthick=2)
 		#plt.grid(b=True, which='major')
 		#plt.plot(kurzezeit, fitFunc(kurzezeit, fitParams[0], fitParams[1], fitParams[2]))#,zeit, fitFunc(t, fitParams[0] + sigma[0], fitParams[1] - sigma[1], fitParams[2] + sigma[2]),zeit, fitFunc(t, fitParams[0] - sigma[0], fitParams[1] + sigma[1], fitParams[2] - sigma[2]))
-		#plt.errorbar(kurzezeit, daten_zum_fitten, linestyle='-', color='r', label=('Corr'), yerr=fehlerdaten_zum_fitten, ecolor='g')
+		#plt.errorbar(kurzezeit, data_to_fit, linestyle='-', color='r', label=('Corr'), yerr=fehlerdata_to_fit, ecolor='g')
 
 		#plt.ylabel(r'$\sigma/T$')
 		#plt.title(r'Time-Correlator of $N^1$')
