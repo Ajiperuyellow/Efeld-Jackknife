@@ -27,30 +27,30 @@ print('*** optimized for electric conductivity calculation ***')
 print('\n')
 
 #Data
-run_group_name =  'ERCONX03PaperChangeE'
+run_group_name =  'ArmEfield500600'
 Number_of_runs = 100
 timesteps = 30001
-temperature_begin = 0.6
+temperature_begin = 0.5
 temperature_end = 0.6
 temperature_inc = 0.1
-efield = 0.05
-efield_end = 0.05
-efield_inc = 0.05
+efield = 0.1
+efield_end = 0.1
+efield_inc = 0.01
 
 
 
 #Name for output-file:
-beliebig = 'JackKTest2'
+beliebig = 'PlotCurrents'
 
 #Parameter:
 ladung = [0.0, 2.0 / 3.0, -2.0 / 3.0, -1.0 / 3.0, 1.0 / 3.0, -1.0 / 3.0, 1.0 / 3.0]
 TT = [34982.0,3639.0,1079.0,454849.0,232883.0,134771.0]#    0.1 0.2 0.3 0.4  0.5 0.6 
-size_of_timestep = 0.01
+size_of_timestep = 0.001
 #Correlator_maxtime = 300
 average_free_cutoff = 10.
 kurzintervall=int(30001)
 Anzahlxlabels = 10
-Analysestart = 8000
+Analysestart = 10000
 
 
 #Arrays and Variables
@@ -69,6 +69,7 @@ print('timesteps: ' + str(timesteps))
 print('')
 
 #Diverses
+currentplots_on = True
 aktuelle_ladung = 0.0
 GoForAll=True
 filename_basis = ''
@@ -80,7 +81,8 @@ mittelwert = N.zeros(Number_of_runs)
 mkdir('ANALYSIS_'+run_group_name+'_'+beliebig)
 #chdir('ANALYSIS_'+run_group_name+'_'+beliebig)
 #mkdir('Time_Histogram_'+run_group_name+'_'+beliebig)
-#mkdir('Currents_'+run_group_name+'_'+beliebig)
+if currentplots_on:
+	mkdir('Currents_'+run_group_name+'_'+beliebig)
 #mkdir('Correlators_'+run_group_name+'_'+beliebig)
 #chdir('../')
 
@@ -108,23 +110,20 @@ while b < (temperature_end + temperature_inc):
 		variance_average = 0.0
 		variance_std = 0.0
 
-		#Initialize the arrays
-		sum_of_corrs=N.zeros(Zeit_max)
-		variance_array = N.zeros(Number_of_runs)
-		corrfunction_array = N.zeros((Zeit_max, Number_of_runs)) 
-		corrfunction_array_manually = N.zeros((Zeit_max, Number_of_runs))
 		
-		mean_corr_array = N.zeros(Zeit_max)
-		std_corr_array = N.zeros(Zeit_max)
-		varianzen_array= N.zeros(Zeit_max)
-		gewichte_array=N.zeros(Zeit_max)
-				
+		#Initialize the arrays and Variables
+		#
+		#Simple Averaging over all
+		Mean_over_all = 0.0
+		Std_deviation_over_all = 0.0
+		Std_error_over_all = 0.0
+		Only_Current_Values_all_runs_all_timesteps = N.zeros(0)
+		#
+		#Jackknife over runs
 		stromarray = N.zeros((Zeit_max, Number_of_runs))
 		reduced_stromarray = N.zeros((Zeit_max, Number_of_runs))
 		mean_strom_array = N.zeros(Zeit_max)
 		std_strom_array = N.zeros(Zeit_max)
-
-		corrfunction_array_MASK = N.zeros((Zeit_max, Number_of_runs))
 		stromarray_MASK = N.zeros((Zeit_max, Number_of_runs))
 		stromarray_masked_clean = N.zeros((Zeit_max, Number_of_runs))
 		
@@ -199,15 +198,14 @@ while b < (temperature_end + temperature_inc):
 							#print zeitcounter
 							stromcomplete[zeitcounter] += float(col[15])*ladung[ch]
 							stromarray[zeitcounter,runnumber-1] = stromcomplete[zeitcounter]
-							#if zeitcounter == 20000:
-							#	print ch
-							#	print(zeitcounter)
-							#	print stromcomplete[zeitcounter-1]
-								
-	#print(str(runnumber) + '\t' + str(zeitcounter) + '\t' + str(stromcomplete[zeitcounter]))
+
 						except:
 							pass
-				Aktiv = False		
+				Aktiv = False
+				#Save current-data in one big array
+				Only_Current_Values_all_runs_all_timesteps = N.append(Only_Current_Values_all_runs_all_timesteps,stromcomplete[Analysestart:timesteps-1])
+
+				
 				#mittelwert[runnumber-1]=N.mean(stromcomplete)
 				#stromcomplete -= N.mean(stromcomplete)
 				
@@ -268,16 +266,20 @@ while b < (temperature_end + temperature_inc):
 		
 		Number_of_runs = Number_of_runs - No_file_count
 		
-		# Calculate the mean current and all that
+		#Calculate the mean current and all that
+		Mean_over_all = N.average(Only_Current_Values_all_runs_all_timesteps)
+		Std_deviation_over_all = N.std(Only_Current_Values_all_runs_all_timesteps)
+		Std_error_over_all = Std_deviation_over_all / sqrt(N.size(Only_Current_Values_all_runs_all_timesteps))
+		print(" Simple Analysis: average over all: \n " + "Mean Current = " + str(Mean_over_all) + "\n Std Deviation = " + str(Std_deviation_over_all)+"\n Std Error = "+str(Std_error_over_all) + "\n")
 
-		
+		#JACKKNIFE
+		#Initialize Jackknife-Analysis-Arrays
 		Jackknife_error_weights=N.zeros(Zeit_max)
 		Jackknife_error_array_over_timesteps=N.zeros(Zeit_max)
 		reduced_stromarray_summed = N.zeros(Zeit_max)
 		mean_strom_array_reduced = N.zeros(Zeit_max)
 		mean_strom_array_error = N.zeros(Zeit_max)
 		Reduced_sample_current_average_array = N.zeros(0)
-		#JACKKNIFE
 		#Full sample
 		mean_strom_array = N.mean(stromarray,axis=1)
 		#only for the plot as reference
@@ -316,6 +318,33 @@ while b < (temperature_end + temperature_inc):
 
 		Final_mean = Full_sample_current_average
 		Final_std = Jackknife_error_current_average
+
+		if currentplots_on == True:
+			currentstring = ''
+			for t in arange(Zeit_max):
+				currentstring += str(t) + '\t' + str(mean_strom_array[t]) + '\n'
+				t = t + 1
+
+			
+			chdir('Currents_'+run_group_name+'_'+beliebig)
+			print('*** Print Nx-Evolution ***')
+
+			f = codecs.open('Current' + '_' + filename_basis + '_' + str(a) + '_' + str(b) + '_' , 'w')
+			f.write(currentstring)
+			f.close()
+			chdir('../')
+
+
+
+
+
+
+
+
+
+
+
+		
 		#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 		#Old Analysis:
 		#++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++			
@@ -394,22 +423,8 @@ while b < (temperature_end + temperature_inc):
 		figure.autolayout = True
 		
 		#Plot the Values:
-		Meantex=r'$ \left\langle N^1\right\rangle = ' +str(round(Final_mean,6))+' \pm ' + str(round(Final_std,6)) + ' fm^{-3}$'
-		#tautex=r'$'+str(round(fitParams[1]*size_of_timestep,4))+' \pm ' + str(round(sigma[1]*size_of_timestep,4)) + ' fm$'
-		#ctex = r'$ c = '+ str(round(fitParams[2],4)) + ' \pm ' + str(round(sigma[2],4)) + ' fm^{-6}$'
-
-		#tex = r'$C(0)= $' + Atex + '\n ' + r'$\tau= $' + tautex + '\n' + ctex
-		ax.text(Analysestart, Final_mean*0.1, Meantex, fontsize=15, va='bottom')
-		
-		
-		
-		# Plot Values for Correlation-Functions
-		#Atex=r'$'+str(round(fitParams[0],4))+' \pm ' + str(round(sigma[0],4)) + ' fm^{-6}$'
-		#tautex=r'$'+str(round(fitParams[1]*size_of_timestep,4))+' \pm ' + str(round(sigma[1]*size_of_timestep,4)) + ' fm$'
-		#ctex = r'$ c = '+ str(round(fitParams[2],4)) + ' \pm ' + str(round(sigma[2],4)) + ' fm^{-6}$'
-
-		#tex = r'$C(0)= $' + Atex + '\n ' + r'$\tau= $' + tautex + '\n' + ctex
-		#ax.text(fitParams[1]/2.0, fitParams[0]+fitParams[2], tex, fontsize=15, va='bottom')
+		Meantex=r'$ Jackknife:\ \left\langle N^1\right\rangle = ' +str(round(Final_mean,6))+' \pm ' + str(round(Final_std,6)) + ' fm^{-3}$,\ Easy:\ ' + str(round(Mean_over_all,6)) + '\pm ' + str(Std_error_over_all)
+		ax.text(0, Final_mean*0.1, Meantex, fontsize=15, va='bottom')
 		
 		ax.set_xlabel(r'Time $[fm]$')
 		ax.tick_params(axis='x', pad=-0.7)
@@ -449,8 +464,9 @@ while b < (temperature_end + temperature_inc):
 		#f = codecs.open(beliebig +'STROM-Datei' + '_' + filename_basis + '_' + str(Number_of_runs) + '_runs_' + str(Zeit_max) + '_tsteps_' , 'w')
 		#f.write(superstring)
 		#f.close()	
-		
-		resultstring  = str(Final_mean) + '\t' + str(Final_std)+'\n'
+
+		resultstring  = 'Start the Analyse from timestep ' + str(Analysestart) + '\n'
+		resultstring  += 'Simple average over all: ' + str(Mean_over_all) + '\t' + str(Std_error_over_all) + '\nJackknife average over runs (overestimation): ' + str(Final_mean) + '\t' + str(Final_std)+'\n'
 		#resultstring += str(Final_mean_non_averaged)+'\t'+str(Final_mean_non_averaged_std) + '\n'
 		#resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation) + '\n'
 		#resultstring += str(Final_mean)+'\t'+str(Weighted_Sample_Std_Deviation/sqrt(Anzahl_Analysezeitschritte))
